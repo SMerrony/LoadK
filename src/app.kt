@@ -27,17 +27,20 @@ SOFTWARE.
 
 import java.io.BufferedInputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import kotlin.IllegalArgumentException
 import kotlin.system.exitProcess
 
-typealias dgByte = kotlin.UByte
-typealias dgWord = kotlin.UShort
-typealias dgDword = kotlin.UInt
+typealias dgByte = UByte
+typealias dgWord = UShort
+typealias dgDword = UInt
 
 const val version = "v0.0.1"
+
+const val DISK_BLOCK_BYTES = 512
 
 var loadIt = false
 var extract = false // do not extract unless requested
@@ -49,6 +52,7 @@ var verbose = false
 val baseDir = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
 var workingDir = baseDir
 val separator = File.separator
+lateinit var writeFile: FileOutputStream
 
 var inFile = false
 var totalFileSize = 0
@@ -56,11 +60,10 @@ var totalFileSize = 0
 fun main(args: Array<String>) {
     var dump = ""
     var arg: String
-    var dumpfile: File
-    var bufferedDump: BufferedInputStream
+    val bufferedDump: BufferedInputStream
 
     var fsbBlob = ByteArray(0)
-    var fileName: String
+    var fileName = ""
 
     if (args.isEmpty()) {
         println("ERROR: No arguments supplied, try --help")
@@ -130,19 +133,19 @@ fun main(args: Array<String>) {
                 readBlob(recHdr.recordLength, bufferedDump, "UDA")
             }
             RecordType.ACL -> {
-                var aclBlob =  readBlob(recHdr.recordLength, bufferedDump, "ACL")
+                val aclBlob =  readBlob(recHdr.recordLength, bufferedDump, "ACL")
                 if (verbose) {
                     println(" ACL: " + aclBlob.toString(Charsets.US_ASCII).trimEnd('\u0000'))
                 }
             }
             RecordType.LINK -> {
-                processLink(recHdr, bufferedDump)
+                processLink(recHdr, fileName,  bufferedDump)
             }
             RecordType.START_BLOCK -> {
                 // nothing to do - it's just a recHdr
             }
             RecordType.DATA_BLOCK -> {
-                processDataBlock(recHdr, fsbBlob, bufferedDump)
+                processDataBlock(recHdr, bufferedDump)
             }
             RecordType.END_BLOCK -> {
                 processEndBlock()
@@ -191,7 +194,7 @@ enum class RecordType(val id: Int) {
     END(9);
 
     companion object {
-        private val map = RecordType.values().associateBy( RecordType::id )
+        private val map = values().associateBy( RecordType::id )
         fun fromInt(rt: Int) = map[rt] ?: throw IllegalArgumentException()
     }
 }
@@ -216,7 +219,6 @@ fun readHeader(d: BufferedInputStream): RecordHeader {
 }
 
 fun readWord(d: BufferedInputStream): dgWord {
-    var w: dgWord
     val twoBytes: ByteArray = byteArrayOf(0, 0)
     try {
         val n =  d.read(twoBytes)
@@ -225,8 +227,7 @@ fun readWord(d: BufferedInputStream): dgWord {
         println("ERROR: Could not read Word from DUMP - ${e.message}")
         exitProcess(1)
     }
-    w = (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
-    return w
+    return (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
 }
 
 data class SOD (
@@ -268,7 +269,7 @@ enum class FSTATentryType(val id: dgByte) {
     FPRG(87U);
 
     companion object {
-        private val map = FSTATentryType.values().associateBy( FSTATentryType::id)
+        private val map = values().associateBy( FSTATentryType::id)
         fun fromByte(fe: dgByte) = map[fe] ?: throw IllegalArgumentException()
     }
 }
@@ -286,8 +287,16 @@ fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
         }
         FSTATentryType.FDIR.id -> {
             fileType = "<Directory>"
+            workingDir += separator + fileName
             if (extract) {
-                // FIXME
+                val dirPath = File(workingDir)
+                if (!dirPath.mkdirs()) {
+                    println("ERROR: Could not create directory <$workingDir>")
+                    if (!ignoreErrors) {
+                        println("Giving up.")
+                        exitProcess(1)
+                    }
+                }
             }
             loadIt = false
         }
@@ -324,7 +333,23 @@ fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
         }
     }
 
-    // FIXME extract and loadIt code...
+    if (extract && loadIt) {
+        val writePath: String = if (workingDir.isEmpty()) {
+            fileName
+        } else {
+            workingDir + separator + fileName
+        }
+        if (verbose) println(" Creating file: $writePath")
+        try {
+            writeFile = FileOutputStream(writePath)
+        } catch (e: java.lang.Exception) {
+            println("ERROR: Could not create file <$writePath> due to ${e.message}")
+            if (!ignoreErrors) {
+                println("Giving up.")
+                exitProcess(1)
+            }
+        }
+    }
 
     return fileName
 }
@@ -336,7 +361,7 @@ data class DataHeader (
     val alignmentCount: dgWord
 )
 
-fun processDataBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInputStream ) {
+fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
     val baBytes = readBlob(4, d, "byte address")
     val ba: dgDword = baBytes[0].toUInt().shl(24) or
             (baBytes[1].toUInt().shl(16) and 0x00ff0000U) or
@@ -366,7 +391,33 @@ fun processDataBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
 
     val dataBlob = readBlob(dhb.byteLength.toInt(), d, "data blob")
 
-    // FIXME add extract/writefile code
+    if (extract) {
+        //check(writeFile.isInitialized)
+        // large areas of NULLs may be skipped over by DUMP_II/III
+        // this is achieved by simply advancing the block address so
+        // we must pad out if block address is beyond end of last block
+        if (dhb.byteAddress.toInt() > totalFileSize+ 1) {
+            val paddingSize = dhb.byteAddress.toInt() - totalFileSize
+            val paddingBlocks = paddingSize / DISK_BLOCK_BYTES
+            val paddingBlock = ByteArray(DISK_BLOCK_BYTES)
+            for (p in 1 .. paddingBlocks) {
+                if (verbose) println("  Padding with one block")
+                try {
+                    writeFile.write(paddingBlock)
+                    totalFileSize += DISK_BLOCK_BYTES
+                } catch (e: Exception) {
+                    println("ERROR: Could not write padding block due to ${e.message}")
+                    exitProcess(1)
+                }
+            }
+        }
+        try {
+            writeFile.write(dataBlob)
+        } catch (e: Exception) {
+            println("ERROR: Count not write data to file due to ${e.message}")
+            exitProcess(1)
+        }
+    }
 
     totalFileSize += dhb.byteLength.toInt()
     inFile = true
@@ -375,7 +426,7 @@ fun processDataBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
 fun processEndBlock() {
     if (inFile) {
         if (extract && loadIt) {
-            // FIXME add missing code
+            writeFile.close()
         }
         if (summary) {
             println(" %12d bytes".format(totalFileSize))
@@ -384,7 +435,7 @@ fun processEndBlock() {
         inFile = false
     } else {
         if (workingDir != baseDir) { // don't move above start dir for safety
-            workingDir = Paths.get(workingDir).getParent().toString()
+            workingDir = Paths.get(workingDir).parent.toString()
         }
         if (verbose) {
             println(" Popped dir - new dir is: $workingDir")
@@ -395,8 +446,9 @@ fun processEndBlock() {
     }
 }
 
-fun processLink(recHeader: RecordHeader, d: BufferedInputStream) {
-    var linkTargetBA= readBlob(recHeader.recordLength, d, "Link Target").dropLastWhile{it == 0.toByte()}.toByteArray()
+fun processLink(recHeader: RecordHeader, linkName: String, d: BufferedInputStream) {
+    val linkTargetBA = readBlob(recHeader.recordLength, d, "Link Target").dropLastWhile{it == 0.toByte()}.toByteArray()
+    var link = linkName
     var linkTarget = linkTargetBA.toString(Charsets.US_ASCII)
     // convert AOS/VS : directory separators to platform-specific ones and ensure upper case
     linkTarget = linkTarget.replace(":", separator).toUpperCase()
@@ -404,6 +456,23 @@ fun processLink(recHeader: RecordHeader, d: BufferedInputStream) {
         println(" -> Link Target: $linkTarget")
     }
     if (extract) {
-        // FIXME missing code
+        val targetName: String
+        if (workingDir.isEmpty()) {
+            targetName = linkTarget
+        } else {
+            targetName = workingDir + separator + linkTarget
+            link  = workingDir + separator + linkName
+        }
+        val linkPath = Paths.get(link)
+        val targetPath = Paths.get(targetName)
+        try {
+            Files.createSymbolicLink(linkPath, targetPath)
+        } catch (e: java.lang.Exception) {
+            println("ERROR: Could not create symbolic link")
+            if (!ignoreErrors) {
+                println("Giving up.")
+                exitProcess(1)
+            }
+        }
     }
 }
