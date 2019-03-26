@@ -121,6 +121,10 @@ fun main(args: Array<String>) {
             println("Found block of type: " + recHdr.recordType.name + " length: ${recHdr.recordLength}")
         }
         when (recHdr.recordType) {
+            RecordType.START -> {
+                println("ERROR: Another START record found in DUMP - this should not happen.")
+                exitProcess(1)
+            }
             RecordType.FSB -> {
                 fsbBlob = readBlob(recHdr.recordLength, bufferedDump, "FSB" )
                 loadIt = false
@@ -154,11 +158,7 @@ fun main(args: Array<String>) {
                 println("=== End of Dump ===")
                 done = true
             }
-            else -> {
-                println("ERROR: Unknown block type(${recHdr.recordType} in DUMP file.  Giving up.")
-                exitProcess(1)
-            }
-        }
+         }
     }
 }
 
@@ -166,7 +166,7 @@ fun readBlob(len: Int, d: BufferedInputStream, desc: String): ByteArray {
     val blob = ByteArray(len)
     try {
         val n = d.read(blob)
-        check(n == len)
+        check( n == len)
     } catch (e: Exception) {
         println("ERROR: Could not read $desc record - ${e.message}")
         exitProcess(1)
