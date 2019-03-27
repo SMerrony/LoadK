@@ -38,7 +38,7 @@ typealias dgByte = UByte
 typealias dgWord = UShort
 typealias dgDword = UInt
 
-const val version = "v0.0.1"
+const val version = "v0.9.4" // following-on from Go version
 
 const val DISK_BLOCK_BYTES = 512
 
@@ -49,9 +49,9 @@ var list = false
 var summary = false
 var verbose = false
 
-val baseDir = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
+val baseDir: String = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
 var workingDir = baseDir
-val separator = File.separator
+val separator: String = File.separator
 lateinit var writeFile: FileOutputStream
 
 var inFile = false
@@ -83,7 +83,7 @@ fun main(args: Array<String>) {
             arg.startsWith("version" ) -> println("LoadK Version $version")
             else -> {
                 println("ERROR: Unknown option... $arg")
-                exitProcess(1)
+                printHelp()
             }
         }
     }
@@ -138,9 +138,7 @@ fun main(args: Array<String>) {
             }
             RecordType.ACL -> {
                 val aclBlob =  readBlob(recHdr.recordLength, bufferedDump, "ACL")
-                if (verbose) {
-                    println(" ACL: " + aclBlob.toString(Charsets.US_ASCII).trimEnd('\u0000'))
-                }
+                if (verbose) println(" ACL: " + aclBlob.toString(Charsets.US_ASCII).trimEnd('\u0000'))
             }
             RecordType.LINK -> {
                 processLink(recHdr, fileName,  bufferedDump)
@@ -166,7 +164,7 @@ fun readBlob(len: Int, d: BufferedInputStream, desc: String): ByteArray {
     val blob = ByteArray(len)
     try {
         val n = d.read(blob)
-        check( n == len)
+        check( n == len) {"Did not get expected number of bytes"}
     } catch (e: Exception) {
         println("ERROR: Could not read $desc record - ${e.message}")
         exitProcess(1)
@@ -208,7 +206,7 @@ fun readHeader(d: BufferedInputStream): RecordHeader {
     val twoBytes: ByteArray = byteArrayOf(0, 0)
     try {
         val n = d.read(twoBytes)
-        check(n == 2)
+        check(n == 2) {"Did not read two bytes"}
     } catch (e: java.lang.Exception) {
         println("ERROR: Could not read Header record from DUMP - ${e.message}")
         exitProcess(1)
@@ -222,7 +220,7 @@ fun readWord(d: BufferedInputStream): dgWord {
     val twoBytes: ByteArray = byteArrayOf(0, 0)
     try {
         val n =  d.read(twoBytes)
-        check(n == 2)
+        check(n == 2) {"Did not read two bytes"}
     } catch (e: java.lang.Exception) {
         println("ERROR: Could not read Word from DUMP - ${e.message}")
         exitProcess(1)
@@ -320,25 +318,14 @@ fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
         }
     }
     if (summary) {
-        val displayPath = if (workingDir.isEmpty()) {
-            fileName
-        } else {
-            File(workingDir).resolve(fileName).toString()
-        }
+        val displayPath = if (workingDir.isEmpty()) fileName else File(workingDir).resolve(fileName).toString()
         print("%-12s: ".format(fileType) + "%-48s".format(displayPath))
-        if (verbose || entryType == FSTATentryType.FDIR.id) {
-            println()
-        } else {
-            print("\t")
-        }
+        if (verbose || entryType == FSTATentryType.FDIR.id) println()
+        else print("\t")
     }
 
     if (extract && loadIt) {
-        val writePath: String = if (workingDir.isEmpty()) {
-            fileName
-        } else {
-            workingDir + separator + fileName
-        }
+        val writePath = if (workingDir.isEmpty()) fileName else workingDir + separator + fileName
         if (verbose) println(" Creating file: $writePath")
         try {
             writeFile = FileOutputStream(writePath)
@@ -379,9 +366,7 @@ fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
 
     val dhb = DataHeader(recHeader, ba, bl, ac)
 
-    if (verbose) {
-        println(" Data Block: ${dhb.byteLength} (bytes)")
-    }
+    if (verbose) println(" Data Block: ${dhb.byteLength} (bytes)")
 
     // skip any alignment bytes - usually zero or one
     if (ac > 0u) {
@@ -392,7 +377,6 @@ fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
     val dataBlob = readBlob(dhb.byteLength.toInt(), d, "data blob")
 
     if (extract) {
-        //check(writeFile.isInitialized)
         // large areas of NULLs may be skipped over by DUMP_II/III
         // this is achieved by simply advancing the block address so
         // we must pad out if block address is beyond end of last block
@@ -425,25 +409,16 @@ fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
 
 fun processEndBlock() {
     if (inFile) {
-        if (extract && loadIt) {
-            writeFile.close()
-        }
-        if (summary) {
-            println(" %12d bytes".format(totalFileSize))
-        }
+        if (extract && loadIt) writeFile.close()
+        if (summary) println(" %12d bytes".format(totalFileSize))
         totalFileSize = 0
         inFile = false
     } else {
-        if (workingDir != baseDir) { // don't move above start dir for safety
-            workingDir = Paths.get(workingDir).parent.toString()
-        }
-        if (verbose) {
-            println(" Popped dir - new dir is: $workingDir")
-        }
+        // don't move above start dir for safety...
+        if (workingDir != baseDir) workingDir = Paths.get(workingDir).parent.toString()
+        if (verbose) println(" Popped dir - new dir is: $workingDir")
     }
-    if (verbose) {
-        println("End Block Processed")
-    }
+    if (verbose) println("End Block Processed")
 }
 
 fun processLink(recHeader: RecordHeader, linkName: String, d: BufferedInputStream) {
@@ -452,9 +427,7 @@ fun processLink(recHeader: RecordHeader, linkName: String, d: BufferedInputStrea
     var linkTarget = linkTargetBA.toString(Charsets.US_ASCII)
     // convert AOS/VS : directory separators to platform-specific ones and ensure upper case
     linkTarget = linkTarget.replace(":", separator).toUpperCase()
-    if (summary || verbose) {
-        println(" -> Link Target: $linkTarget")
-    }
+    if (summary || verbose) println(" -> Link Target: $linkTarget")
     if (extract) {
         val targetName: String
         if (workingDir.isEmpty()) {
