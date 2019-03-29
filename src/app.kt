@@ -70,7 +70,7 @@ fun main(args: Array<String>) {
         return
     }
     for (str in args) {
-        arg = stripHyphens(str)
+        arg = str.replace(Regex("^-*"),"")  // remove leading hyphens
 
         when {
             arg.startsWith("dumpfile") -> dump = arg.removePrefix("dumpfile=")
@@ -171,8 +171,6 @@ fun readBlob(len: Int, d: BufferedInputStream, desc: String): ByteArray {
     }
     return blob
 }
-
-fun stripHyphens(s: String) = s.replace(Regex("^-*"),"")
 
 fun printHelp() {
     println( "Usage: LoadK [--help]|--dumpfile=<filename> [--version] [--extract] [--ignoreerrors] [--list] [--summary]")
