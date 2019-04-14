@@ -38,7 +38,7 @@ typealias dgByte = UByte
 typealias dgWord = UShort
 typealias dgDword = UInt
 
-const val version = "v0.9.4" // following-on from Go version
+const val semVer = "v0.9.4" // following-on from Go semVer
 
 const val DISK_BLOCK_BYTES = 512
 
@@ -80,7 +80,7 @@ fun main(args: Array<String>) {
             arg.startsWith("list") -> list = true
             arg.startsWith("summary") -> summary = true
             arg.startsWith("verbose") -> verbose = true
-            arg.startsWith("version" ) -> println("LoadK Version $version")
+            arg.startsWith("semVer" ) -> println("LoadK Version $semVer")
             else -> {
                 println("ERROR: Unknown option... $arg")
                 printHelp()
@@ -105,7 +105,7 @@ fun main(args: Array<String>) {
     val sod = readSOD(bufferedDump)
     if (summary or verbose) {
         println("Summary of DUMP file : $dump")
-        println("AOS/VS DUMP version  : ${sod.dumpFormatRevision}")
+        println("AOS/VS DUMP semVer  : ${sod.dumpFormatRevision}")
         println("DUMP date (y-m-d)    : ${sod.dumpTimeYear}-${sod.dumpTimeMonth}-${sod.dumpTimeDay}")
         println("DUMP time (hh:mm:ss) : ${sod.dumpTimeHours}:${sod.dumpTimeMins}:${sod.dumpTimeSecs}")
     }
@@ -172,8 +172,13 @@ fun readBlob(len: Int, d: BufferedInputStream, desc: String): ByteArray {
     return blob
 }
 
+fun readWord(d: BufferedInputStream): dgWord {
+    val twoBytes: ByteArray = readBlob( 2, d, "DG Word")
+    return (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
+}
+
 fun printHelp() {
-    println( "Usage: LoadK [--help]|--dumpfile=<filename> [--version] [--extract] [--ignoreerrors] [--list] [--summary]")
+    println( "Usage: LoadK [--help]|--dumpfile=<filename> [--semVer] [--extract] [--ignoreerrors] [--list] [--summary]")
     exitProcess(0)
 }
 
@@ -214,18 +219,6 @@ fun readHeader(d: BufferedInputStream): RecordHeader {
     return RecordHeader(RecordType.fromInt(rt), rl)
 }
 
-fun readWord(d: BufferedInputStream): dgWord {
-    val twoBytes: ByteArray = byteArrayOf(0, 0)
-    try {
-        val n =  d.read(twoBytes)
-        check(n == 2) {"Did not read two bytes"}
-    } catch (e: java.lang.Exception) {
-        println("ERROR: Could not read Word from DUMP - ${e.message}")
-        exitProcess(1)
-    }
-    return (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
-}
-
 data class SOD (
     val header: RecordHeader,
     val dumpFormatRevision: dgWord,
@@ -256,32 +249,48 @@ fun readSOD(d: BufferedInputStream): SOD {
 }
 
 enum class FSTATentryType(val id: dgByte) {
-    FLNK(0U),
-    FDIR(12U),
-    FDMP(64U), // guessed symbol
-    FSTF(67U),
-    FTXT(68U),
+    FLNK(0U), // Link
+    FSDF(1U), // System Data File
+    FMTF(2U), // Mag Tape File
+    FGFN(3U), // Generic File Name
+    FDIR(10U), // Disk Directory
+    FLDU(11U), // LD Root Dir
+    FCPD(12U), // Control Point Dir
+    FUDF(64U), // User Data File (also old Programs)
+    FUPF(66U), // User Profile File
+    FSTF(67U), // Symbol Table
+    FTXT(68U), // Text File
+    FLOG(69U), // Sys Log Gile
     FPRV(74U),
-    FPRG(87U);
+    FPRG(87U),
+    Funknown(255U);
 
     companion object {
         private val map = values().associateBy( FSTATentryType::id)
-        fun fromByte(fe: dgByte) = map[fe] ?: throw IllegalArgumentException()
+        fun fromByte(fe: dgByte) = map[fe] ?: Funknown
     }
 }
 
 fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInputStream ): String {
-    val fileType: String
+    var fileType = ""
     val nameBytes: ByteArray = readBlob(recHeader.recordLength, d, "file name")
     val fileName = nameBytes.toString(Charsets.US_ASCII).trimEnd('\u0000')
     if (summary and verbose) println()
-    val entryType: dgByte = fsbBlob[1].toUByte()
+    val entryType = FSTATentryType.fromByte(fsbBlob[1].toUByte())
     when (entryType) {
-        FSTATentryType.FLNK.id -> {
+        FSTATentryType.FUDF -> {
+            fileType = "User Data File"
+            loadIt = true
+        }
+        FSTATentryType.FGFN -> {
+            fileType = "Generic File"
+            loadIt = true
+        }
+        FSTATentryType.FLNK -> {
             fileType = "=>Link=>"
             loadIt = false
         }
-        FSTATentryType.FDIR.id -> {
+        FSTATentryType.FDIR, FSTATentryType.FLDU, FSTATentryType.FCPD -> {
             fileType = "<Directory>"
             workingDir += separator + fileName
             if (extract) {
@@ -296,29 +305,44 @@ fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
             }
             loadIt = false
         }
-        FSTATentryType.FSTF.id -> {
-            fileType = "Symbol Table"
+        FSTATentryType.FLOG ->{
+            fileType = "System Log File"
             loadIt = true
         }
-        FSTATentryType.FTXT.id -> {
-            fileType = "Text File"
+        FSTATentryType.FMTF ->{
+            fileType = "Mag Tape File"
             loadIt = true
         }
-        FSTATentryType.FPRG.id, FSTATentryType.FPRV.id -> {
+        FSTATentryType.FPRG, FSTATentryType.FPRV -> {
             fileType = "Program File"
             loadIt = true
         }
-        else -> {
-            // we don't explicitly recognise the type
-            // TODO: get definitive list from paru.32.sr
-            fileType = "File"
+        FSTATentryType.FSDF -> {
+            fileType = "Sys Data File"
             loadIt = true
         }
+        FSTATentryType.FSTF -> {
+            fileType = "Symbol Table"
+            loadIt = true
+        }
+        FSTATentryType.FTXT -> {
+            fileType = "Text File"
+            loadIt = true
+        }
+        FSTATentryType.FUPF -> {
+            fileType = "User Profile File"
+            loadIt = true
+        }
+        FSTATentryType.Funknown -> {
+            fileType = "Unknown File"
+            loadIt = true
+        }
+
     }
     if (summary) {
         val displayPath = if (workingDir.isEmpty()) fileName else File(workingDir).resolve(fileName).toString()
-        print("%-12s: ".format(fileType) + "%-48s".format(displayPath))
-        if (verbose || entryType == FSTATentryType.FDIR.id) println()
+        print("%-18s: ".format(fileType) + "%-48s".format(displayPath))
+        if (verbose || entryType == FSTATentryType.FCPD) println()
         else print("\t")
     }
 
