@@ -57,6 +57,8 @@ lateinit var writeFile: FileOutputStream
 var inFile = false
 var totalFileSize = 0
 
+val knownEntryTypes = knownFtstatEntryTypes()
+
 fun main(args: Array<String>) {
     var dump = ""
     var arg: String
@@ -248,7 +250,7 @@ fun readSOD(d: BufferedInputStream): SOD {
     return SOD(hdr, rev, secs, mins, hrs, day, mnth, year)
 }
 
-enum class FSTATentryType(val id: dgByte) {
+enum class FSTATentryTypeEnum(val id: dgByte) {
     FLNK(0U), // Link
     FSDF(1U), // System Data File
     FMTF(2U), // Mag Tape File
@@ -266,32 +268,45 @@ enum class FSTATentryType(val id: dgByte) {
     Funknown(255U);
 
     companion object {
-        private val map = values().associateBy( FSTATentryType::id)
+        private val map = values().associateBy( FSTATentryTypeEnum::id)
         fun fromByte(fe: dgByte) = map[fe] ?: Funknown
     }
 }
 
-fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInputStream ): String {
-    var fileType = ""
+data class FstatEntryType ( val dgMnemonic: String, val desc: String, val isDir: Boolean, val hasPayload: Boolean )
+
+fun knownFtstatEntryTypes(): Map<Int, FstatEntryType> {
+    return mapOf(
+        0 to FstatEntryType(dgMnemonic = "FLNK", desc = "=>Link=>", isDir = false, hasPayload = false),
+        1 to FstatEntryType(dgMnemonic = "FDSF", desc = "System Data File", isDir = false, hasPayload = true),
+        2 to FstatEntryType(dgMnemonic = "FMTF", desc = "Mag Tape File", isDir = false, hasPayload = true),
+        3 to FstatEntryType(dgMnemonic = "FGFN", desc = "Generic File", isDir = false, hasPayload = true),
+        10 to FstatEntryType(dgMnemonic = "FDIR", desc = "<Directory>", isDir = true, hasPayload = false),
+        11 to FstatEntryType(dgMnemonic = "FLDU", desc = "<LDU Directory>", isDir = true, hasPayload = false),
+        12 to FstatEntryType(dgMnemonic = "FCPD", desc = "<Control Point Dir>", isDir = true, hasPayload = false),
+        64 to FstatEntryType(dgMnemonic = "FUDF", desc = "User Data File", isDir = false, hasPayload = true),
+        66 to FstatEntryType(dgMnemonic = "FUPD", desc = "User Profile", isDir = false, hasPayload = true),
+        67 to FstatEntryType(dgMnemonic = "FSTF", desc = "Symbol Table", isDir = false, hasPayload = true),
+        68 to FstatEntryType(dgMnemonic = "FTXT", desc = "Text File", isDir = false, hasPayload = true),
+        69 to FstatEntryType(dgMnemonic = "FLOG", desc = "System Log File", isDir = false, hasPayload = true),
+        74 to FstatEntryType(dgMnemonic = "FPRV", desc = "Program File", isDir = false, hasPayload = true),
+        87 to FstatEntryType(dgMnemonic = "FPRG", desc = "Program File", isDir = false, hasPayload = true)
+    )
+}
+
+fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInputStream): String {
+    var fileType: String
     val nameBytes: ByteArray = readBlob(recHeader.recordLength, d, "file name")
     val fileName = nameBytes.toString(Charsets.US_ASCII).trimEnd('\u0000')
     if (summary and verbose) println()
-    val entryType = FSTATentryType.fromByte(fsbBlob[1].toUByte())
-    when (entryType) {
-        FSTATentryType.FUDF -> {
-            fileType = "User Data File"
-            loadIt = true
-        }
-        FSTATentryType.FGFN -> {
-            fileType = "Generic File"
-            loadIt = true
-        }
-        FSTATentryType.FLNK -> {
-            fileType = "=>Link=>"
-            loadIt = false
-        }
-        FSTATentryType.FDIR, FSTATentryType.FLDU, FSTATentryType.FCPD -> {
-            fileType = "<Directory>"
+    val thisEntry: FstatEntryType? = knownEntryTypes[fsbBlob[1].toInt()]
+    if (thisEntry == null) {
+        fileType = "Unknown File"
+        loadIt = true
+    } else {
+        fileType = thisEntry.desc
+        loadIt = thisEntry.hasPayload
+        if (thisEntry.isDir) {
             workingDir += separator + fileName
             if (extract) {
                 val dirPath = File(workingDir)
@@ -303,46 +318,13 @@ fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, d: BufferedInp
                     }
                 }
             }
-            loadIt = false
         }
-        FSTATentryType.FLOG ->{
-            fileType = "System Log File"
-            loadIt = true
-        }
-        FSTATentryType.FMTF ->{
-            fileType = "Mag Tape File"
-            loadIt = true
-        }
-        FSTATentryType.FPRG, FSTATentryType.FPRV -> {
-            fileType = "Program File"
-            loadIt = true
-        }
-        FSTATentryType.FSDF -> {
-            fileType = "Sys Data File"
-            loadIt = true
-        }
-        FSTATentryType.FSTF -> {
-            fileType = "Symbol Table"
-            loadIt = true
-        }
-        FSTATentryType.FTXT -> {
-            fileType = "Text File"
-            loadIt = true
-        }
-        FSTATentryType.FUPF -> {
-            fileType = "User Profile File"
-            loadIt = true
-        }
-        FSTATentryType.Funknown -> {
-            fileType = "Unknown File"
-            loadIt = true
-        }
-
     }
+
     if (summary) {
         val displayPath = if (workingDir.isEmpty()) fileName else File(workingDir).resolve(fileName).toString()
-        print("%-18s: ".format(fileType) + "%-48s".format(displayPath))
-        if (verbose || entryType == FSTATentryType.FCPD) println()
+        print("%-20s: ".format(fileType) + "%-48s".format(displayPath))
+        if (verbose || (thisEntry !=null && thisEntry.isDir)) println()
         else print("\t")
     }
 
