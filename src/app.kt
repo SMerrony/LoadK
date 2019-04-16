@@ -250,29 +250,6 @@ fun readSOD(d: BufferedInputStream): SOD {
     return SOD(hdr, rev, secs, mins, hrs, day, mnth, year)
 }
 
-enum class FSTATentryTypeEnum(val id: dgByte) {
-    FLNK(0U), // Link
-    FSDF(1U), // System Data File
-    FMTF(2U), // Mag Tape File
-    FGFN(3U), // Generic File Name
-    FDIR(10U), // Disk Directory
-    FLDU(11U), // LD Root Dir
-    FCPD(12U), // Control Point Dir
-    FUDF(64U), // User Data File (also old Programs)
-    FUPF(66U), // User Profile File
-    FSTF(67U), // Symbol Table
-    FTXT(68U), // Text File
-    FLOG(69U), // Sys Log Gile
-    FPRV(74U),
-    FPRG(87U),
-    Funknown(255U);
-
-    companion object {
-        private val map = values().associateBy( FSTATentryTypeEnum::id)
-        fun fromByte(fe: dgByte) = map[fe] ?: Funknown
-    }
-}
-
 data class FstatEntryType ( val dgMnemonic: String, val desc: String, val isDir: Boolean, val hasPayload: Boolean )
 
 fun knownFtstatEntryTypes(): Map<Int, FstatEntryType> {
