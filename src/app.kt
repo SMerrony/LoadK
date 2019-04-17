@@ -159,6 +159,10 @@ fun main(args: Array<String>) {
                 println("=== End of Dump ===")
                 done = true
             }
+            RecordType.Unknown -> {
+                println("ERROR: Unknown block type in DUMP file.  Giving up.")
+                exitProcess(1)
+            }
          }
     }
 }
@@ -195,11 +199,12 @@ enum class RecordType(val id: Int) {
     START_BLOCK(6),
     DATA_BLOCK(7),
     END_BLOCK(8),
-    END(9);
+    END(9),
+    Unknown(99);
 
     companion object {
         private val map = values().associateBy( RecordType::id )
-        fun fromInt(rt: Int) = map[rt] ?: throw IllegalArgumentException()
+        fun fromInt(rt: Int) = map[rt] ?: Unknown
     }
 }
 
