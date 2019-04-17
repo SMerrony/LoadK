@@ -24,7 +24,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -38,7 +37,7 @@ typealias dgByte = UByte
 typealias dgWord = UShort
 typealias dgDword = UInt
 
-const val semVer = "v0.9.4" // following-on from Go semVer
+const val semVer = "v1.4.0" // matches Go semVer at v1.4.0
 
 const val DISK_BLOCK_BYTES = 512
 
@@ -48,6 +47,7 @@ var ignoreErrors = false
 var list = false
 var summary = false
 var verbose = false
+var version = false
 
 val baseDir: String = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
 var workingDir = baseDir
@@ -82,12 +82,16 @@ fun main(args: Array<String>) {
             arg.startsWith("list") -> list = true
             arg.startsWith("summary") -> summary = true
             arg.startsWith("verbose") -> verbose = true
-            arg.startsWith("semVer" ) -> println("LoadK Version $semVer")
+            arg.startsWith("version" ) -> version = true
             else -> {
                 println("ERROR: Unknown option... $arg")
                 printHelp()
             }
         }
+    }
+    if (verbose or version) {
+        println("LoadK version $semVer")
+        if (!verbose) exitProcess(0)
     }
     if (dump.isEmpty()) {
         println("ERROR: Must specify dump file name with --dumpfile=<dumpfile> option")
@@ -114,9 +118,6 @@ fun main(args: Array<String>) {
 
     // now work through the dump examining each block type and handling accordingly...
     var done = false
-
-    //var loadIt = false
-
     while (!done) {
         val recHdr = readHeader(bufferedDump)
         if (verbose) {
@@ -180,7 +181,7 @@ fun readWord(d: BufferedInputStream): dgWord {
 }
 
 fun printHelp() {
-    println( "Usage: LoadK [--help]|--dumpfile=<filename> [--semVer] [--extract] [--ignoreerrors] [--list] [--summary]")
+    println( "Usage: LoadK [--help]|--dumpfile=<filename> [--version] [--extract] [--ignoreerrors] [--list] [--summary]")
     exitProcess(0)
 }
 
@@ -208,14 +209,7 @@ data class RecordHeader (
 )
 
 fun readHeader(d: BufferedInputStream): RecordHeader {
-    val twoBytes: ByteArray = byteArrayOf(0, 0)
-    try {
-        val n = d.read(twoBytes)
-        check(n == 2) {"Did not read two bytes"}
-    } catch (e: java.lang.Exception) {
-        println("ERROR: Could not read Header record from DUMP - ${e.message}")
-        exitProcess(1)
-    }
+    val twoBytes: ByteArray = readBlob( 2, d, "header")
     val rt = twoBytes[0].toInt().shr(2) and 0x00FF
     val rl = (twoBytes[0].toInt() and 0x03).shl(8) + twoBytes[1].toInt()
     return RecordHeader(RecordType.fromInt(rt), rl)
@@ -238,7 +232,6 @@ fun readSOD(d: BufferedInputStream): SOD {
         println("ERROR: This does not appear to be an AOS/VS DUMP_II or DUMP_III file (No SOD record found).")
         exitProcess(1)
     }
-
     val rev = readWord(d)
     val secs = readWord(d)
     val mins = readWord(d)
@@ -246,7 +239,6 @@ fun readSOD(d: BufferedInputStream): SOD {
     val day = readWord(d)
     val mnth = readWord(d)
     val year = readWord(d)
-
     return SOD(hdr, rev, secs, mins, hrs, day, mnth, year)
 }
 
@@ -335,8 +327,8 @@ fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
             (baBytes[1].toUInt().shl(16) and 0x00ff0000U) or
             (baBytes[2].toUInt().shl(8) and 0x0000ff00U) or
             (baBytes[3].toUInt() and 0x000000ffU)
-    val blBytes = readBlob(4, d, "byte length")
 
+    val blBytes = readBlob(4, d, "byte length")
     val bl: dgDword = blBytes[0].toUInt().shl(24) or
             (blBytes[1].toUInt().shl(16) and 0x00ff0000U) or
             (blBytes[2].toUInt().shl(8) and 0x0000ff00U) or
@@ -383,7 +375,6 @@ fun processDataBlock(recHeader: RecordHeader, d: BufferedInputStream ) {
             exitProcess(1)
         }
     }
-
     totalFileSize += dhb.byteLength.toInt()
     inFile = true
 }
