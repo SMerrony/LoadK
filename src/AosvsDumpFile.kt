@@ -24,7 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import org.junit.jupiter.api.Assertions
+// import org.junit.jupiter.api.Assertions
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -32,26 +32,27 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import kotlin.system.exitProcess
 
-
-typealias dgByte = UByte
 typealias dgWord = UShort
 typealias dgDword = UInt
 
 const val DISK_BLOCK_BYTES = 512
 
+/**
+ * A representation of the AOS/VS (and other) DUMP_II and DUMP_III format.
+ */
 class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
 
-    internal val dumpStream = dumpFileStream
-    internal var loadIt = false
-    internal var inFile = false
-    internal var baseDir = ""
-    internal var workingDir = ""
-    internal val separator: String = File.separator
-    internal lateinit var writeFile: FileOutputStream
-    internal var totalFileSize = 0
-    internal val knownEntryTypes = knownFstatEntryTypes()
+    private val dumpStream = dumpFileStream
+    private var loadIt = false
+    private var inFile = false
+    private var baseDir = ""
+    private var workingDir = ""
+    private val separator: String = File.separator
+    private lateinit var writeFile: FileOutputStream
+    private var totalFileSize = 0
+    private val knownEntryTypes = knownFstatEntryTypes()
 
-    enum class RecordType(val id: Int) {
+    private enum class RecordType(val id: Int) {
         START(0),
         FSB(1),
         NB(2),
@@ -62,7 +63,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         DATA_BLOCK(7),
         END_BLOCK(8),
         END(9),
-        Unknown(99);
+        Unknown(99);  // This dummy value is returned when an unknown type is encountered.
 
         companion object {
             private val map = values().associateBy( RecordType::id )
@@ -70,19 +71,19 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         }
     }
 
-    data class RecordHeader (
+    private data class RecordHeader (
         val recordType: RecordType,
         val recordLength: Int
     )
 
-    internal fun readHeader(): RecordHeader {
+    private fun readHeader(): RecordHeader {
         val twoBytes: ByteArray = readBlob( 2, "header")
         val rt = twoBytes[0].toInt().shr(2) and 0x00FF
         val rl = (twoBytes[0].toInt() and 0x03).shl(8) + twoBytes[1].toInt()
         return RecordHeader(RecordType.fromInt(rt), rl)
     }
 
-    data class SOD (
+    private data class SOD (
         val header: RecordHeader,
         val dumpFormatRevision: dgWord,
         val dumpTimeSecs: dgWord,
@@ -93,7 +94,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         val dumpTimeYear: dgWord
     )
 
-    internal fun readSOD(): SOD {
+    private fun readSOD(): SOD {
         val hdr = readHeader()
         if (hdr.recordType != RecordType.START) {
             println("ERROR: This does not appear to be an AOS/VS DUMP_II or DUMP_III file (No SOD record found).")
@@ -108,7 +109,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         val year = readWord()
         return SOD(hdr, rev, secs, mins, hrs, day, mnth, year)
     }
-    data class FstatEntryType (
+    private data class FstatEntryType (
         val dgMnemonic: String,
         val desc: String,
         val isDir: Boolean,
@@ -133,7 +134,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         )
     }
 
-    internal fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, summary: Boolean, verbose: Boolean, extract: Boolean, ignoreErrors: Boolean): String {
+    private fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, summary: Boolean, verbose: Boolean, extract: Boolean, ignoreErrors: Boolean): String {
         var fileType: String
         val nameBytes: ByteArray = readBlob(recHeader.recordLength, "file name")
         val fileName = nameBytes.toString(Charsets.US_ASCII).trimEnd('\u0000')
@@ -148,8 +149,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
             if (thisEntry.isDir) {
                 workingDir += separator + fileName
                 if (extract) {
-                    val dirPath = File(workingDir)
-                    if (!dirPath.mkdirs()) {
+                    if (!File(workingDir).mkdirs()) {
                         println("ERROR: Could not create directory <$workingDir>")
                         if (!ignoreErrors) {
                             println("Giving up.")
@@ -184,14 +184,14 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         return fileName
     }
 
-    data class DataHeader (
+    private data class DataHeader (
         val header: RecordHeader,
         val byteAddress: dgDword,
         val byteLength: dgDword,
         val alignmentCount: dgWord
     )
 
-    internal fun processDataBlock(recHeader: RecordHeader, verbose: Boolean, extract: Boolean ) {
+    private fun processDataBlock(recHeader: RecordHeader, verbose: Boolean, extract: Boolean ) {
         val baBytes = readBlob(4, "byte address")
         val ba: dgDword = baBytes[0].toUInt().shl(24) or
                 (baBytes[1].toUInt().shl(16) and 0x00ff0000U) or
@@ -217,17 +217,15 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
             readBlob(ac.toInt(), "alignment byte(s)")
         }
 
-        val dataBlob = readBlob(dhb.byteLength.toInt(), "data blob")
-
         if (extract) {
             // large areas of NULLs may be skipped over by DUMP_II/III
             // this is achieved by simply advancing the block address so
             // we must pad out if block address is beyond end of last block
-            if (dhb.byteAddress.toInt() > totalFileSize+ 1) {
+            if (dhb.byteAddress.toInt() > totalFileSize + 1) {
                 val paddingSize = dhb.byteAddress.toInt() - totalFileSize
                 val paddingBlocks = paddingSize / DISK_BLOCK_BYTES
                 val paddingBlock = ByteArray(DISK_BLOCK_BYTES)
-                for (p in 1 .. paddingBlocks) {
+                for (p in 1..paddingBlocks) {
                     if (verbose) println("  Padding with one block")
                     try {
                         writeFile.write(paddingBlock)
@@ -239,7 +237,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
                 }
             }
             try {
-                writeFile.write(dataBlob)
+                writeFile.write(readBlob(dhb.byteLength.toInt(), "data blob"))
             } catch (e: Exception) {
                 println("ERROR: Count not write data to file due to ${e.message}")
                 exitProcess(1)
@@ -249,7 +247,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         inFile = true
     }
 
-    internal fun processEndBlock(verbose: Boolean, extract: Boolean, summary: Boolean) {
+    private fun processEndBlock(verbose: Boolean, extract: Boolean, summary: Boolean) {
         if (inFile) {
             if (extract && loadIt) writeFile.close()
             if (summary) println(" %12d bytes".format(totalFileSize))
@@ -263,7 +261,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         if (verbose) println("End Block Processed")
     }
 
-    internal fun processLink(recHeader: RecordHeader, linkName: String, verbose: Boolean, extract: Boolean, summary: Boolean, ignoreErrors: Boolean ) {
+    private fun processLink(recHeader: RecordHeader, linkName: String, verbose: Boolean, extract: Boolean, summary: Boolean, ignoreErrors: Boolean ) {
         val linkTargetBA = readBlob(recHeader.recordLength, "Link Target").dropLastWhile{it == 0.toByte()}.toByteArray()
         var link = linkName
         var linkTarget = linkTargetBA.toString(Charsets.US_ASCII)
@@ -301,7 +299,6 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         // there should always be a SOD record...
         val sod = readSOD()
         if (summary or verbose) {
-            //println("Summary of DUMP file : $dump")
             println("AOS/VS DUMP version  : ${sod.dumpFormatRevision}")
             println("DUMP date (y-m-d)    : ${sod.dumpTimeYear}-${sod.dumpTimeMonth}-${sod.dumpTimeDay}")
             println("DUMP time (hh:mm:ss) : ${sod.dumpTimeHours}:${sod.dumpTimeMins}:${sod.dumpTimeSecs}")
@@ -360,7 +357,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
 
     // helper functions...
 
-    internal fun readBlob(len: Int, desc: String): ByteArray {
+    private fun readBlob(len: Int, desc: String): ByteArray {
         val blob = ByteArray(len)
         try {
             val n = dumpStream.read(blob)
@@ -372,12 +369,12 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         return blob
     }
 
-    internal fun readWord(): dgWord {
+    private fun readWord(): dgWord {
         val twoBytes: ByteArray = readBlob( 2, "DG Word")
         return (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
     }
 
-//    internal class AosvsDumpFileTest {
+//    private class AosvsDumpFileTest {
 //        @org.junit.jupiter.api.Test
 //        fun getKnownEntryTypes() {
 //            val kfet = super.knownFstatEntryTypes()
