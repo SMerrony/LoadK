@@ -30,27 +30,26 @@ import kotlin.system.exitProcess
 
 const val SEM_VER = "v1.4.0" // matches Go SEM_VER at v1.4.0
 
-var extract = false // do not extract unless requested
-var ignoreErrors = false
-var list = false
-var summary = false
-var verbose = false
-var version = false
-
-val baseDir: String = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
-
 fun main(args: Array<String>) {
+    // program options...
+    var extract = false         // do not extract unless requested
+    var ignoreErrors = false    // if true, then some errors are ignored when restoring files/dirs/links
+    var list = false            // not really used at present
+    var summary = false         // summarise the contents of the DUMP
+    var verbose = false         // very wordy output
+    var version = false
+
+    val baseDir: String = System.getProperty("user.dir")  // as DUMP files can legally contain too many POPs we store cwd and avoid traversing above it
     var dump = ""
     var arg: String
-    val bufferedDump: BufferedInputStream
 
     if (args.isEmpty()) {
-        println("ERROR: No arguments supplied, try --help")
+        println("ERROR: No arguments supplied.")
+        printHelp()
         return
     }
     for (str in args) {
         arg = str.replace(Regex("^-*"),"")  // remove leading hyphens
-
         when {
             arg.startsWith("dumpfile") -> dump = arg.removePrefix("dumpfile=")
             arg.startsWith("extract") -> extract = true
@@ -78,8 +77,7 @@ fun main(args: Array<String>) {
     try {
         val path = Paths.get(dump)
         val dumpStream = Files.newInputStream(path, StandardOpenOption.READ)
-        bufferedDump = dumpStream.buffered(512)
-        var aosvsDump = AosvsDumpFile(bufferedDump)
+        val aosvsDump = AosvsDumpFile(dumpStream.buffered(512))
         if (verbose or summary) println("Summary of DUMP file : $dump")
         aosvsDump.parse(extract, ignoreErrors, list, summary, verbose, baseDir)
     } catch (e: Exception) {
