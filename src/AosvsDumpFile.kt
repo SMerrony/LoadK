@@ -24,7 +24,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// import org.junit.jupiter.api.Assertions
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -66,24 +65,24 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         Unknown(99);  // This dummy value is returned when an unknown type is encountered.
 
         companion object {
-            private val map = values().associateBy( RecordType::id )
+            private val map = values().associateBy(RecordType::id)
             fun fromInt(rt: Int) = map[rt] ?: Unknown
         }
     }
 
-    private data class RecordHeader (
+    private data class RecordHeader(
         val recordType: RecordType,
         val recordLength: Int
     )
 
     private fun readHeader(): RecordHeader {
-        val twoBytes: ByteArray = readBlob( 2, "header")
+        val twoBytes: ByteArray = readBlob(2, "header")
         val rt = twoBytes[0].toInt().shr(2) and 0x00FF
         val rl = (twoBytes[0].toInt() and 0x03).shl(8) + twoBytes[1].toInt()
         return RecordHeader(RecordType.fromInt(rt), rl)
     }
 
-    private data class SOD (
+    private data class SOD(
         val header: RecordHeader,
         val dumpFormatRevision: dgWord,
         val dumpTimeSecs: dgWord,
@@ -109,11 +108,13 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         val year = readWord()
         return SOD(hdr, rev, secs, mins, hrs, day, mnth, year)
     }
-    private data class FstatEntryType (
+
+    private data class FstatEntryType(
         val dgMnemonic: String,
         val desc: String,
         val isDir: Boolean,
-        val hasPayload: Boolean )
+        val hasPayload: Boolean
+    )
 
     private fun knownFstatEntryTypes(): Map<Int, FstatEntryType> {
         return mapOf(
@@ -134,7 +135,14 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         )
     }
 
-    private fun processNameBlock(recHeader: RecordHeader, fsbBlob: ByteArray, summary: Boolean, verbose: Boolean, extract: Boolean, ignoreErrors: Boolean): String {
+    private fun processNameBlock(
+        recHeader: RecordHeader,
+        fsbBlob: ByteArray,
+        summary: Boolean,
+        verbose: Boolean,
+        extract: Boolean,
+        ignoreErrors: Boolean
+    ): String {
         var fileType: String
         val nameBytes: ByteArray = readBlob(recHeader.recordLength, "file name")
         val fileName = nameBytes.toString(Charsets.US_ASCII).trimEnd('\u0000')
@@ -163,7 +171,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         if (summary) {
             val displayPath = if (workingDir.isEmpty()) fileName else File(workingDir).resolve(fileName).toString()
             print("%-20s: ".format(fileType) + "%-48s".format(displayPath))
-            if (verbose || (thisEntry !=null && thisEntry.isDir)) println()
+            if (verbose || (thisEntry != null && thisEntry.isDir)) println()
             else print("\t")
         }
 
@@ -184,14 +192,14 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         return fileName
     }
 
-    private data class DataHeader (
+    private data class DataHeader(
         val header: RecordHeader,
         val byteAddress: dgDword,
         val byteLength: dgDword,
         val alignmentCount: dgWord
     )
 
-    private fun processDataBlock(recHeader: RecordHeader, verbose: Boolean, extract: Boolean ) {
+    private fun processDataBlock(recHeader: RecordHeader, verbose: Boolean, extract: Boolean) {
         val baBytes = readBlob(4, "byte address")
         val ba: dgDword = baBytes[0].toUInt().shl(24) or
                 (baBytes[1].toUInt().shl(16) and 0x00ff0000U) or
@@ -216,27 +224,21 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
             if (verbose) println("  Skipping ${dhb.alignmentCount} alignment byte(s)")
             readBlob(ac.toInt(), "alignment byte(s)")
         }
-
         if (extract) {
-            // large areas of NULLs may be skipped over by DUMP_II/III
-            // this is achieved by simply advancing the block address so
-            // we must pad out if block address is beyond end of last block
-            if (dhb.byteAddress.toInt() > totalFileSize + 1) {
-                val paddingSize = dhb.byteAddress.toInt() - totalFileSize
-                val paddingBlocks = paddingSize / DISK_BLOCK_BYTES
-                val paddingBlock = ByteArray(DISK_BLOCK_BYTES)
-                for (p in 1..paddingBlocks) {
-                    if (verbose) println("  Padding with one block")
-                    try {
+            try {
+                // large areas of NULLs may be skipped over by DUMP_II/III
+                // this is achieved by simply advancing the block address so
+                // we must pad out if block address is beyond end of last block
+                if (dhb.byteAddress.toInt() > totalFileSize + 1) {
+                    val paddingSize = dhb.byteAddress.toInt() - totalFileSize
+                    val paddingBlocks = paddingSize / DISK_BLOCK_BYTES
+                    val paddingBlock = ByteArray(DISK_BLOCK_BYTES)
+                    for (p in 1..paddingBlocks) {
+                        if (verbose) println("  Padding with one block")
                         writeFile.write(paddingBlock)
                         totalFileSize += DISK_BLOCK_BYTES
-                    } catch (e: Exception) {
-                        println("ERROR: Could not write padding block due to ${e.message}")
-                        exitProcess(1)
                     }
                 }
-            }
-            try {
                 writeFile.write(readBlob(dhb.byteLength.toInt(), "data blob"))
             } catch (e: Exception) {
                 println("ERROR: Count not write data to file due to ${e.message}")
@@ -261,8 +263,16 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         if (verbose) println("End Block Processed")
     }
 
-    private fun processLink(recHeader: RecordHeader, linkName: String, verbose: Boolean, extract: Boolean, summary: Boolean, ignoreErrors: Boolean ) {
-        val linkTargetBA = readBlob(recHeader.recordLength, "Link Target").dropLastWhile{it == 0.toByte()}.toByteArray()
+    private fun processLink(
+        recHeader: RecordHeader,
+        linkName: String,
+        verbose: Boolean,
+        extract: Boolean,
+        summary: Boolean,
+        ignoreErrors: Boolean
+    ) {
+        val linkTargetBA =
+            readBlob(recHeader.recordLength, "Link Target").dropLastWhile { it == 0.toByte() }.toByteArray()
         var link = linkName
         var linkTarget = linkTargetBA.toString(Charsets.US_ASCII)
         // convert AOS/VS : directory separators to platform-specific ones and ensure upper case
@@ -274,7 +284,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
                 targetName = linkTarget
             } else {
                 targetName = workingDir + separator + linkTarget
-                link  = workingDir + separator + linkName
+                link = workingDir + separator + linkName
             }
             val linkPath = Paths.get(link)
             val targetPath = Paths.get(targetName)
@@ -290,7 +300,14 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         }
     }
 
-    public fun parse(extract: Boolean, ignoreErrors: Boolean, list: Boolean, summary: Boolean, verbose: Boolean, baseDir: String) {
+    public fun parse(
+        extract: Boolean,
+        ignoreErrors: Boolean,
+        list: Boolean,
+        summary: Boolean,
+        verbose: Boolean,
+        baseDir: String
+    ) {
         this.baseDir = baseDir
         workingDir = baseDir
         var fsbBlob = ByteArray(0)
@@ -308,27 +325,25 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         var done = false
         while (!done) {
             val recHdr = readHeader()
-            if (verbose) {
-                println("Found block of type: " + recHdr.recordType.name + " length: ${recHdr.recordLength}")
-            }
+            if (verbose) println("Found block of type: ${recHdr.recordType.name} length: ${recHdr.recordLength}")
             when (recHdr.recordType) {
                 RecordType.START -> {
                     println("ERROR: Another START record found in DUMP - this should not happen.")
                     exitProcess(1)
                 }
                 RecordType.FSB -> {
-                    fsbBlob = readBlob(recHdr.recordLength, "FSB" )
+                    fsbBlob = readBlob(recHdr.recordLength, "FSB")
                     loadIt = false
                 }
                 RecordType.NB -> {
-                    fileName = processNameBlock( recHdr, fsbBlob, summary, verbose, extract, ignoreErrors )
+                    fileName = processNameBlock(recHdr, fsbBlob, summary, verbose, extract, ignoreErrors)
                 }
                 RecordType.UDA -> {
                     // throw away for now
                     readBlob(recHdr.recordLength, "UDA")
                 }
                 RecordType.ACL -> {
-                    val aclBlob =  readBlob(recHdr.recordLength, "ACL")
+                    val aclBlob = readBlob(recHdr.recordLength, "ACL")
                     if (verbose) println(" ACL: " + aclBlob.toString(Charsets.US_ASCII).trimEnd('\u0000'))
                 }
                 RecordType.LINK -> {
@@ -361,7 +376,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         val blob = ByteArray(len)
         try {
             val n = dumpStream.read(blob)
-            check( n == len) {"Did not get expected number of bytes"}
+            check(n == len) { "Did not get expected number of bytes" }
         } catch (e: Exception) {
             println("ERROR: Could not read $desc record - ${e.message}")
             exitProcess(1)
@@ -370,16 +385,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
     }
 
     private fun readWord(): dgWord {
-        val twoBytes: ByteArray = readBlob( 2, "DG Word")
+        val twoBytes: ByteArray = readBlob(2, "DG Word")
         return (twoBytes[0].toUInt().shl(8)).toUShort().or(twoBytes[1].toUShort())
     }
-
-//    private class AosvsDumpFileTest {
-//        @org.junit.jupiter.api.Test
-//        fun getKnownEntryTypes() {
-//            val kfet = super.knownFstatEntryTypes()
-//            val fmtf: FstatEntryType? = kfet[2]
-//            Assertions.assertEquals("FMTF", fmtf!!.dgMnemonic)
-//        }
-//    }
 }
