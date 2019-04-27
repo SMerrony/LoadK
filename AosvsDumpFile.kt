@@ -34,7 +34,7 @@ import kotlin.system.exitProcess
 typealias dgWord = UShort
 typealias dgDword = UInt
 
-const val DISK_BLOCK_BYTES = 512
+// const val DISK_BLOCK_BYTES = 512
 
 /**
  * A representation of the AOS/VS (and other) DUMP_II and DUMP_III format.
@@ -116,24 +116,22 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         val hasPayload: Boolean
     )
 
-    private fun knownFstatEntryTypes(): Map<Int, FstatEntryType> {
-        return mapOf(
-            0 to FstatEntryType(dgMnemonic = "FLNK", desc = "=>Link=>", isDir = false, hasPayload = false),
-            1 to FstatEntryType(dgMnemonic = "FDSF", desc = "System Data File", isDir = false, hasPayload = true),
-            2 to FstatEntryType(dgMnemonic = "FMTF", desc = "Mag Tape File", isDir = false, hasPayload = true),
-            3 to FstatEntryType(dgMnemonic = "FGFN", desc = "Generic File", isDir = false, hasPayload = true),
-            10 to FstatEntryType(dgMnemonic = "FDIR", desc = "<Directory>", isDir = true, hasPayload = false),
-            11 to FstatEntryType(dgMnemonic = "FLDU", desc = "<LDU Directory>", isDir = true, hasPayload = false),
-            12 to FstatEntryType(dgMnemonic = "FCPD", desc = "<Control Point Dir>", isDir = true, hasPayload = false),
-            64 to FstatEntryType(dgMnemonic = "FUDF", desc = "User Data File", isDir = false, hasPayload = true),
-            66 to FstatEntryType(dgMnemonic = "FUPD", desc = "User Profile", isDir = false, hasPayload = true),
-            67 to FstatEntryType(dgMnemonic = "FSTF", desc = "Symbol Table", isDir = false, hasPayload = true),
-            68 to FstatEntryType(dgMnemonic = "FTXT", desc = "Text File", isDir = false, hasPayload = true),
-            69 to FstatEntryType(dgMnemonic = "FLOG", desc = "System Log File", isDir = false, hasPayload = true),
-            74 to FstatEntryType(dgMnemonic = "FPRV", desc = "Program File", isDir = false, hasPayload = true),
-            87 to FstatEntryType(dgMnemonic = "FPRG", desc = "Program File", isDir = false, hasPayload = true)
-        )
-    }
+    private fun knownFstatEntryTypes() = mapOf(
+        0 to FstatEntryType(dgMnemonic = "FLNK", desc = "=>Link=>", isDir = false, hasPayload = false),
+        1 to FstatEntryType(dgMnemonic = "FDSF", desc = "System Data File", isDir = false, hasPayload = true),
+        2 to FstatEntryType(dgMnemonic = "FMTF", desc = "Mag Tape File", isDir = false, hasPayload = true),
+        3 to FstatEntryType(dgMnemonic = "FGFN", desc = "Generic File", isDir = false, hasPayload = true),
+        10 to FstatEntryType(dgMnemonic = "FDIR", desc = "<Directory>", isDir = true, hasPayload = false),
+        11 to FstatEntryType(dgMnemonic = "FLDU", desc = "<LDU Directory>", isDir = true, hasPayload = false),
+        12 to FstatEntryType(dgMnemonic = "FCPD", desc = "<Control Point Dir>", isDir = true, hasPayload = false),
+        64 to FstatEntryType(dgMnemonic = "FUDF", desc = "User Data File", isDir = false, hasPayload = true),
+        66 to FstatEntryType(dgMnemonic = "FUPD", desc = "User Profile", isDir = false, hasPayload = true),
+        67 to FstatEntryType(dgMnemonic = "FSTF", desc = "Symbol Table", isDir = false, hasPayload = true),
+        68 to FstatEntryType(dgMnemonic = "FTXT", desc = "Text File", isDir = false, hasPayload = true),
+        69 to FstatEntryType(dgMnemonic = "FLOG", desc = "System Log File", isDir = false, hasPayload = true),
+        74 to FstatEntryType(dgMnemonic = "FPRV", desc = "Program File", isDir = false, hasPayload = true),
+        87 to FstatEntryType(dgMnemonic = "FPRG", desc = "Program File", isDir = false, hasPayload = true)
+    )
 
     private fun processNameBlock(
         recHeader: RecordHeader,
