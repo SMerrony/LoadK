@@ -143,7 +143,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         extract: Boolean,
         ignoreErrors: Boolean
     ): String {
-        var fileType: String
+        val fileType: String
         val nameBytes: ByteArray = readBlob(recHeader.recordLength, "file name")
         val fileName = nameBytes.toString(Charsets.US_ASCII).trimEnd('\u0000')
         if (summary and verbose) println()
@@ -224,27 +224,27 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
             if (verbose) println("  Skipping ${dhb.alignmentCount} alignment byte(s)")
             readBlob(ac.toInt(), "alignment byte(s)")
         }
-        if (extract) {
-            try {
-                // large areas of NULLs may be skipped over by DUMP_II/III
-                // this is achieved by simply advancing the block address so
-                // we must pad out if block address is beyond end of last block
-                if (dhb.byteAddress.toInt() > totalFileSize + 1) {
-                    val paddingSize = dhb.byteAddress.toInt() - totalFileSize
-                    val paddingBlocks = paddingSize / DISK_BLOCK_BYTES
-                    val paddingBlock = ByteArray(DISK_BLOCK_BYTES)
-                    for (p in 1..paddingBlocks) {
-                        if (verbose) println("  Padding with one block")
-                        writeFile.write(paddingBlock)
-                        totalFileSize += DISK_BLOCK_BYTES
-                    }
+        // large areas of NULLs may be skipped over by DUMP_II/III
+        // this is achieved by simply advancing the byte address so
+        // we must pad out if byte address is beyond end of last block
+        try {
+            if (dhb.byteAddress.toInt() > totalFileSize + 1) {
+                val paddingSize = dhb.byteAddress.toInt() - totalFileSize
+                // println("File Size: $totalFileSize, BA: ${dhb.byteAddress.toInt()}, Padding Size: $paddingSize")
+                val paddingBlock = ByteArray(paddingSize)
+                if (extract) {
+                    if (verbose) println("  Padding with NULLs")
+                    writeFile.write(paddingBlock)
                 }
-                writeFile.write(readBlob(dhb.byteLength.toInt(), "data blob"))
-            } catch (e: Exception) {
-                println("ERROR: Count not write data to file due to ${e.message}")
-                exitProcess(1)
+                totalFileSize += paddingSize
             }
+            val blob = readBlob(dhb.byteLength.toInt(), "data blob")
+            if (extract) writeFile.write(blob)
+        } catch (e: Exception) {
+            println("ERROR: Count not write data to file due to ${e.message}")
+            exitProcess(1)
         }
+
         totalFileSize += dhb.byteLength.toInt()
         inFile = true
     }
@@ -300,7 +300,7 @@ class AosvsDumpFile(dumpFileStream: BufferedInputStream) {
         }
     }
 
-    public fun parse(
+    fun parse(
         extract: Boolean,
         ignoreErrors: Boolean,
         list: Boolean,

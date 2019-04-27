@@ -28,7 +28,7 @@ import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import kotlin.system.exitProcess
 
-const val SEM_VER = "v1.4.0" // matches Go SEM_VER at v1.4.0
+const val SEM_VER = "v1.4.1" // matches Go SEM_VER from v1.4.0
 
 fun main(args: Array<String>) {
     // program options...
